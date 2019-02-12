@@ -114,9 +114,7 @@ class TestHoldingsFinbourneApi(TestCase):
         tran_requests.append(TestDataUtilities.build_cash_funds_in_transaction_request(units=100000.0,
                                                                                        currency=currency,
                                                                                        trade_date=day0))
-        # create initial transactions
-        idx = 0
-        # we want to create transactions based on the first 3 instruments
+        # create initial transactions, based on the first 3 instruments
         for idx in range(3):
             instrument = self.sorted_instrument_ids[idx]
 
