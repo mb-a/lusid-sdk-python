@@ -94,20 +94,20 @@ class TestTransactionsFinbourneAPI(TestCase):
 
         # portfolio request
         original_portfolio_id = "Id-" + str(uuid_gen)
-        request = models.CreateTransactionPortfolioRequest("Portfolio-" + str(uuid_gen),
-                                                           original_portfolio_id,
+        request = models.CreateTransactionPortfolioRequest(display_name="Portfolio-one",
+                                                           code=original_portfolio_id,
                                                            base_currency="GBP",
                                                            created=effective_date)
         # create the portfolio
         portfolio_response = self.client.create_portfolio(scope, request)
-
         self.assertEqual(portfolio_response.id.code, request.code)
 
-        # create the transaction
+        # create the transaction, a buy of the first instrument in our list
         transaction_request = models.TransactionRequest(
                                     transaction_id=str(uuid.uuid4()),
                                     type="Buy",
-                                    instrument_uid=self.luid_list[0],
+                                    instrument_identifiers={
+                                    'Instrument/default/LusidInstrumentId': self.luid_list[0]},
                                     transaction_date=effective_date,
                                     settlement_date=effective_date,
                                     units=100.0,
@@ -130,8 +130,8 @@ class TestTransactionsFinbourneAPI(TestCase):
 
         # portfolio request
         original_portfolio_id = "Id-" + str(uuid_gen)
-        request = models.CreateTransactionPortfolioRequest("Portfolio-" + str(uuid_gen),
-                                                           original_portfolio_id,
+        request = models.CreateTransactionPortfolioRequest(display_name="Portfolio-two",
+                                                           code=original_portfolio_id,
                                                            base_currency="GBP",
                                                            created=effective_date)
         # create the portfolio
@@ -145,7 +145,8 @@ class TestTransactionsFinbourneAPI(TestCase):
         transaction_request = models.TransactionRequest(
                                     transaction_id=str(uuid.uuid4()),
                                     type="FundsIn",
-                                    instrument_uid="CCY_GBP",
+                                    instrument_identifiers={
+                                                  'Instrument/default/Currency': "GBP"},
                                     transaction_date=effective_date,
                                     settlement_date=effective_date,
                                     units=100.0,
@@ -168,8 +169,8 @@ class TestTransactionsFinbourneAPI(TestCase):
 
         # portfolio request
         original_portfolio_id = "Id-" + str(uuid_gen)
-        request = models.CreateTransactionPortfolioRequest("Portfolio-" + str(uuid_gen),
-                                                           original_portfolio_id,
+        request = models.CreateTransactionPortfolioRequest(display_name="Portfolio-three",
+                                                           code=original_portfolio_id,
                                                            base_currency="GBP",
                                                            created=effective_date)
         # create the portfolio
@@ -194,7 +195,7 @@ class TestTransactionsFinbourneAPI(TestCase):
         transaction_request = models.TransactionRequest(
                                                         transaction_id=str(uuid.uuid4()),
                                                         type="Buy",
-                                                        instrument_uid=swap_id,
+                                                        instrument_identifiers={'Instrument/default/Currency': "GBP"},
                                                         transaction_date=effective_date,
                                                         settlement_date=effective_date,
                                                         units=1.0,

@@ -31,6 +31,7 @@ class TestAccessFinbourneApi(TestCase):
     shrine_client = None
     effective_date = datetime(2017, 1, 1, tzinfo=pytz.utc)
 
+
     @classmethod
     def setUpClass(cls):
 
@@ -41,54 +42,37 @@ class TestAccessFinbourneApi(TestCase):
         cls.CUSTOM_INTERNAL_SCHEME = "ClientInternal"
         cls.GROUPBY_KEY = "Instrument/default/Name"
         cls.AGGREGATION_KEY = "Holding/default/PV"
+        cls.INSTRUMENT_FILE = 'data/DOW Figis.csv'
         cls.sorted_instrument_ids = []
         cls.instrument_universe = {}
-        # Load our configuration details from the environment variables
-        token_url = os.getenv("FBN_TOKEN_URL", None)
-        cls.api_url = os.getenv("FBN_LUSID_API_URL", None)
-        username = os.getenv("FBN_USERNAME", None)
-        password_raw = os.getenv("FBN_PASSWORD", None)
-        client_id_raw = os.getenv("FBN_CLIENT_ID", None)
-        client_secret_raw = os.getenv("FBN_CLIENT_SECRET", None)
+        user_list = {}
+        # Load our multiple configuration details from the local secrets file
+        dir_path = os.path.dirname(os.path.realpath(__file__))
+        with open(os.path.join(dir_path, "secrets.json"), "r") as secrets:
+            config = json.load(secrets)
 
-        # If any of the environmental variables are missing use a local secrets file
-        if token_url is None or username is None or password_raw is None or client_id_raw is None \
-                or client_secret_raw is None or cls.api_url is None:
+        token_url = os.getenv("FBN_TOKEN_URL", config["api"]["tokenUrl"])
+        # 3 users - restricted, admin and super
 
-            dir_path = os.path.dirname(os.path.realpath(__file__))
-            with open(os.path.join(dir_path, "secrets.json"), "r") as secrets:
-                config = json.load(secrets)
+        username_super = os.getenv("FBN_USERNAME", config["api"]["username_super"])
+        username_admin = os.getenv("FBN_USERNAME", config["api"]["username_admin"])
+        username_restricted = os.getenv("FBN_USERNAME", config["api"]["username_restricted"])
 
-            token_url = os.getenv("FBN_TOKEN_URL", config["api"]["tokenUrl"])
-            username = os.getenv("FBN_USERNAME", config["api"]["username"])
-            password = pathname2url(os.getenv("FBN_PASSWORD", config["api"]["password"]))
-            client_id = pathname2url(os.getenv("FBN_CLIENT_ID", config["api"]["clientId"]))
-            client_secret = pathname2url(os.getenv("FBN_CLIENT_SECRET", config["api"]["clientSecret"]))
-            cls.api_url = os.getenv("FBN_LUSID_API_URL", config["api"]["apiUrl"])
+        password_super = pathname2url(os.getenv("FBN_PASSWORD", config["api"]["password_super"]))
+        password_admin = pathname2url(os.getenv("FBN_PASSWORD", config["api"]["password_admin"]))
+        password_restricted = pathname2url(os.getenv("FBN_PASSWORD", config["api"]["password_restricted"]))
 
-        else:
-            password = pathname2url(password_raw)
-            client_id = pathname2url(client_id_raw)
-            client_secret = pathname2url(client_secret_raw)
+        client_id = pathname2url(os.getenv("FBN_CLIENT_ID", config["api"]["clientId"]))
+        client_secret = pathname2url(os.getenv("FBN_CLIENT_SECRET", config["api"]["clientSecret"]))
 
-        # Prepare our authentication request
-        token_request_body = ("grant_type=password&username={0}".format(username) +
-                              "&password={0}&scope=openid client groups".format(password) +
-                              "&client_id={0}&client_secret={1}".format(client_id, client_secret))
-        headers = {"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
+        user_list[username_admin] = password_admin
+        user_list[username_restricted] = password_restricted
 
-        # Make our authentication request
-        okta_response = requests.post(token_url, data=token_request_body, headers=headers)
+        cls.api_url = os.getenv("FBN_LUSID_API_URL", config["api"]["apiUrl"])
 
-        # Ensure that we have a 200 response code
-        assert okta_response.status_code == 200
-
-        # Retrieve our api token from the authentication response
-        cls.api_token = {"access_token": okta_response.json()["access_token"]}
-
-        # Initialise our API client using our token so that we can include it in all future requests
-        credentials = BasicTokenAuthentication(cls.api_token)
-        cls.client = lusid.LUSIDAPI(credentials, cls.api_url)
+        # Create shrine and lusid clients, return credentials, using super who will be in charge
+        # of creating policies and roles.
+        credentials = cls.create_shrine_lusid_clients(username_super, password_super, client_id, client_secret, token_url)
 
         ##################################
         # create scopes here
@@ -99,63 +83,231 @@ class TestAccessFinbourneApi(TestCase):
         scope = "finbourne"
         analyst_scope_code = 'notepad-access-' + scope          # + "-" + str(uuid_gen)
 
+        ################
+        # Cutdown or full sized test?
+        close_file = 'data/company_closing_prices_no_divis_matched.csv'
+        transactions_file = 'data/DJIItransactions.csv'
+        # Fullsized test runs from 1/1/17, with valuation 1/1/19?
+        # Valuation date is the last entered closing price date
+        # today_date = datetime(2018, 12, 31, tzinfo=pytz.utc)
+        today_date = datetime(2018, 12, 31, tzinfo=pytz.utc)
+        cls.INSTRUMENT_FILE = 'data/DOW Figis.csv'
+
+        transaction_portfolio_code = 'DJII_30a'  # djii_30 has an error deleting and recreating
 
         ##################################
         # Create policies with access, timing etc (really show off shrine capabilities)
         # Create roles with groups of these policies
         # In Okta, create accounts. Attached roles to these accounts
+        # 1 We first create policies, which describe the permissions (e.g r access to LUSID, r-w to SHRINE)
+        # 2 We create roles, which are collections of policies
+        # 3 OKTA has been manually updated to create two users, cleric01 and manager01 and two groups
+        # The secrets file contains login
 
-
-        #get json file
-        file1 = "roleCreationRequestPM.json"
-        file2 = "roleCreationRequestPV.json"
-        file3 = "policyCreationRequestView.json"
-        file4 = "policyCreationRequestMod.json"
-        json1 = cls.import_json_file(file1)
-        json2 = cls.import_json_file(file2)
-        json3 = cls.import_json_file(file3)
-        json4 = cls.import_json_file(file4)
-
-        # Pass as HTTP requests to lusid
-
-        cls.shrine_client = shrine.FINBOURNEShrineAPI(credentials)
-
-        #create a policy
-
-
-
-        model_for_spec = shrine_models.ForSpec()
-        eff_date_rel = shrine_models.EffectiveDateRelative()
-        eff_date_rel.date_property = cls.effective_date
-        model_for_spec.effective_date_relative = cls.effective_date
+        # Create a policy
 
         policy_activate_date = datetime(2016, 1, 1, tzinfo=pytz.utc)
-        policy_deactivate_date = datetime(2019, 1, 1, tzinfo=pytz.utc)
+        policy_deactivate_date = datetime(2020, 1, 1, tzinfo=pytz.utc)
+
+        policy_from_date = datetime(2017, 1, 1, tzinfo=pytz.utc)
+        policy_to_date = datetime(2018, 1, 1, tzinfo=pytz.utc)
+
         model_when_spec = shrine_models.WhenSpec()
         model_when_spec.activate = policy_activate_date
         model_when_spec.deactivate = policy_deactivate_date
+        model_for_spec = shrine_models.ForSpec()
+        effective_range = shrine_models.EffectiveRange(from_property=policy_from_date, to=policy_to_date)
+        #effective_relative = shrine_models.EffectiveRange(from_property=policy_from_date, to=policy_to_date)
+        effective_quality = shrine_models.EffectiveDateHasQuality(quality="IsFirstDayOfAnyMonth")
+        #model_for_spec.effective_range = effective_range
+        model_for_spec.effective_date_has_quality = effective_quality
+        #model_for_spec.effective_date_relative = effective_relative
+        action_portfolio = shrine_models.ActionId(scope="default", activity="Any", entity="Portfolio")
+        action_datatype_read = shrine_models.ActionId(scope="default", activity="Read", entity="DataType")
+        action_propertydef_add = shrine_models.ActionId(scope="default", activity="Add", entity="PropertyDefinition")
+        action_propertydef_read = shrine_models.ActionId(scope="default", activity="Read", entity="PropertyDefinition")
 
-        scope_code_id_path_def = shrine_models.ScopeAndCodeIdPathDefinition(scope=analyst_scope_code, code="Performance")
-        id_path_def = shrine_models.IdPathDefinition(scope_code_id_path_def)
 
-        path1 = shrine_models.PathDefinition(id_path_definition=id_path_def)
+        # full_id_path_def = shrine_models.ComplexKeyIdPathDefinition({"domain": "Instrument", "scope": "default", "code": "Ticker"})
 
-        policy1 = shrine_models.PolicyCreationRequest(grant='ALLOW',
-                                                      paths=[path1],
-                                                      when=model_when_spec,
-                                                      description='Blah',   # runtime resource restrictions
-                                                      for_property=[model_for_spec],          # temporal restriction
-                                                      )
+        # Here we connect the policy to the portfolio via the scope code.
+        scope_id_path_def = shrine_models.ScopeIdPathDefinition(
+            scope=analyst_scope_code
+        )
+        id_path_def = shrine_models.IdPathDefinition(
+            scope_id_path_definition=scope_id_path_def,
+            category="Identifier",
+            actions=[action_portfolio, action_propertydef_add, action_propertydef_read],
+            name="Notepad-view",
+            description="View notepad"
+        )
 
-        response = cls.shrine_client.api_policies_post(policy1)
+        scope_and_code_idp2 = shrine_models.ScopeAndCodeIdPathDefinition("default", "string")
+        id_path_def2 = shrine_models.IdPathDefinition(
+            scope_and_code_id_path_definition=scope_and_code_idp2,
+            category="Identifier",
+            actions=[action_datatype_read],
+            name="Notepad-view",
+            description="View notepad"
+        )
 
+        scope_id_path_def3 = shrine_models.ScopeIdPathDefinition(
+            scope="default"
+        )
+        id_path_def3 = shrine_models.IdPathDefinition(
+            scope_id_path_definition=scope_id_path_def3,
+            category="Identifier",
+            actions=[action_propertydef_read],
+            name="Notepad-view",
+            description="View notepad"
+        )
+
+        scope_and_code_idp4 = shrine_models.ScopeAndCodeIdPathDefinition("default", "*")
+        id_path_def4 = shrine_models.IdPathDefinition(
+            scope_and_code_id_path_definition=scope_and_code_idp4,
+            category="Identifier",
+            actions=[action_datatype_read],
+            name="Notepad-view",
+            description="View notepad"
+        )
+        # need a further path for the 'restrict' 'portfolio' policy
+        id_path_def5 = shrine_models.IdPathDefinition(
+            scope_id_path_definition=scope_id_path_def,
+            category="Identifier",
+            actions=[action_portfolio],
+            name="Notepad-view",
+            description="View notepad"
+        )
+        path_view = shrine_models.PathDefinition(id_path_definition=id_path_def)
+        path_view2 = shrine_models.PathDefinition(id_path_definition=id_path_def2)
+        path_view3 = shrine_models.PathDefinition(id_path_definition=id_path_def3)
+        path_view4 = shrine_models.PathDefinition(id_path_definition=id_path_def4)
+        path_view5 = shrine_models.PathDefinition(id_path_definition=id_path_def5)
+
+        policy_code_allow = "ViewPolicyAllow"
+        policy_code_restrict = "ViewPolicyRestrict"
+        policy_code_restrict1 = "ViewPolicyRestrict1"
+        role_code_restrict = "clerical-no-access"
+        role_code_allow = "manager-all-access"
+
+        # Create the policies designed to grant and restrict access to LUSID data within our scope
+        policy_allow = shrine_models.PolicyCreationRequest(
+            code=policy_code_allow,
+            description='Policy to allow viewing of notepad portfolio',
+            applications=['Lusid'],
+            grant='ALLOW',
+            paths=[path_view, path_view2, path_view3, path_view4],
+            when=model_when_spec
+        )
+        policy_restrict = shrine_models.PolicyCreationRequest(
+            code=policy_code_restrict,
+            description='Policy to restrict viewing of notepad portfolio',
+            applications=['Lusid'],
+            grant="ALLOW",
+            paths=[path_view2, path_view3, path_view4],
+            when=model_when_spec
+        )
+        policy_restrict1 = shrine_models.PolicyCreationRequest(
+            code=policy_code_restrict1,
+            description='Policy to restrict viewing of notepad portfolio',
+            applications=['Lusid'],
+            grant="ALLOW",
+            paths=[path_view5],
+            when=model_when_spec,
+            for_property=[model_for_spec]       #only attach the forspec to the portfolio access policy, otherwise the other actions will be tested against this criteria
+        )
+        tokenid = credentials.token['access_token']
+        custom_header = {'Authorization': 'Bearer ' + tokenid}
+
+        #Delete everything
+        # response = cls.shrine_client.api_roles_by_code_delete(role_code_allow, custom_headers=custom_header)
+        # response = cls.shrine_client.api_roles_by_code_delete(role_code_restrict, custom_headers=custom_header)
+        # response = cls.shrine_client.api_policies_by_code_delete(policy_code_allow, custom_headers=custom_header)
+        # response = cls.shrine_client.api_policies_by_code_delete(policy_code_restrict, custom_headers=custom_header)
+        # response = cls.shrine_client.api_policies_by_code_delete(policy_code_restrict1, custom_headers=custom_header)
+
+        # check before submitting that you are not duplicating policies, this is not permitted
+        try:
+            response = cls.shrine_client.api_policies_by_code_get(policy_code_allow, custom_headers=custom_header)
+        except Exception as inst:
+            if inst.error.response.status_code == 404:
+                # Policy does not exist, create.
+                response = cls.shrine_client.api_policies_post(policy_allow, custom_headers=custom_header)
+        try:
+            response = cls.shrine_client.api_policies_by_code_get(policy_code_restrict, custom_headers=custom_header)
+        except Exception as inst:
+            if inst.error.response.status_code == 404:
+                # Policy does not exist, create.
+                response = cls.shrine_client.api_policies_post(policy_restrict, custom_headers=custom_header)
+        try:
+            response = cls.shrine_client.api_policies_by_code_get(policy_code_restrict1, custom_headers=custom_header)
+        except Exception as inst:
+            if inst.error.response.status_code == 404:
+                # Policy does not exist, create.
+                response = cls.shrine_client.api_policies_post(policy_restrict1, custom_headers=custom_header)
+        # create a role for someone not allowed to view transactions - clerical level access
+        # and someone allowed full access - manager level
+
+        policyID_cleric = shrine_models.PolicyId(scope="default", code=policy_code_restrict)
+        policyID_cleric1 = shrine_models.PolicyId(scope="default", code=policy_code_restrict1)
+        policyID_manager = shrine_models.PolicyId(scope="default", code=policy_code_allow)
+
+        policyIDresource_cleric = shrine_models.PolicyIdRoleResource(
+            policy_identifiers=[policyID_cleric, policyID_cleric1],
+            policy_collection_identifiers=[]
+        )
+
+        policyIDresource_manager = shrine_models.PolicyIdRoleResource(
+            policy_identifiers=[policyID_manager],
+            policy_collection_identifiers=[]
+        )
+        resource_cleric = shrine_models.RoleResourceRequest(policy_id_role_resource=policyIDresource_cleric)
+        resource_manager = shrine_models.RoleResourceRequest(policy_id_role_resource=policyIDresource_manager)
+
+        role_cleric = shrine_models.RoleCreationRequest(
+            code=role_code_restrict,
+            description="Test role for lesser access",
+            resource=resource_cleric,
+            when=model_when_spec
+        )
+
+        role_manager = shrine_models.RoleCreationRequest(
+            code=role_code_allow,
+            description="Test role for all access",
+            resource=resource_manager,
+            when=model_when_spec
+        )
+
+        # check before submitting that you are not duplicating roles, this is not permitted
+
+        try:
+            response = cls.shrine_client.api_roles_by_code_get(role_code_restrict, custom_headers=custom_header)
+        except Exception as inst:
+            if inst.error.response.status_code == 404:
+                # Role does not exist, create
+                response = cls.shrine_client.api_roles_post(role_cleric, custom_headers=custom_header)
+
+        try:
+            response = cls.shrine_client.api_roles_by_code_get(role_code_allow, custom_headers=custom_header)
+        except Exception as inst:
+            if inst.error.response.status_code == 404:
+                # Role does not exist, create
+                response = cls.shrine_client.api_roles_post(role_manager, custom_headers=custom_header)
+
+
+        # credentials = cls.create_shrine_lusid_clients(username_default, password_default, client_id_default,client_secret_default, token_url)
+
+        ##################################
+        # Create and load in instruments - we would like to do this under restricted permissions but are awaiting
+        # a new implemenation of complexIDpath from shrine
+
+        inst_list = cls.load_instruments_from_file()
+        cls.upsert_intruments(inst_list)
+
+        # for_property = [model_for_spec]  # temporal restriction
         # Start the clock on timing
         start = time.time()
 
-        ##################################
-        # Create and load in instruments
-        inst_list = cls.load_instruments_from_file()
-        cls.upsert_intruments(inst_list)
 
         end = time.time()
         print('Inst load: ' + str(end-start))
@@ -163,8 +315,6 @@ class TestAccessFinbourneApi(TestCase):
         ##################################
         # Create transactions portfolio
         # Define unique code for our portfolio
-
-        transaction_portfolio_code = 'DJII_30'
 
         # The date our portfolios were first created
         portfolio_creation_date = cls.effective_date
@@ -178,9 +328,12 @@ class TestAccessFinbourneApi(TestCase):
             created=portfolio_creation_date)
 
         # Call LUSID to create our portfolio
-        portfolio_response = cls.client.create_portfolio(
-            scope=analyst_scope_code,
-            create_request=transaction_portfolio_request)
+        try:
+            response = cls.client.get_portfolio(scope=analyst_scope_code, code=transaction_portfolio_code)
+        except Exception as err_response:
+            if err_response.response.status_code == 404:
+                # portfolio does not exist, create.
+                response = cls.client.create_portfolio(scope=analyst_scope_code, create_request=transaction_portfolio_request)
 
         # Pretty print the response from LUSID
         # prettyprint.portfolio_response(portfolio_response)
@@ -230,7 +383,7 @@ class TestAccessFinbourneApi(TestCase):
         # and add transactions to their transaction portfolio
         # Import transactions from DJII transactions. We have 30 instruments with hidden strategies to investigate
 
-        djii_transactions = cls.load_transactions_from_file('DJIItransactions.csv')
+        djii_transactions = cls.load_transactions_from_file(transactions_file)
 
         end = time.time()
 
@@ -250,12 +403,18 @@ class TestAccessFinbourneApi(TestCase):
                 code='string')
             )
 
-        # Call LUSID to create our new property
-        property_response = cls.client.create_property_definition(definition=property_request)
+        # Call LUSID to create our property
+        try:
+            property_response = cls.client.get_property_definition(domain='Trade', scope=analyst_scope_code, code='strategy')
+        except Exception as err_response:
+            if err_response.error.status == 404:       #why is this different
+                # property does not exist, create.
+                property_response = cls.client.create_property_definition(definition=property_request)
 
         # Grab the key off the response to use when referencing this property in other LUSID calls
         strategy_property_key = property_response.key
 
+        #'Trade/notepad-access-finbourne/strategy'
         # Pretty print our strategy property key
         # prettyprint.heading('Strategy Property Key: ', strategy_property_key)
 
@@ -289,15 +448,18 @@ class TestAccessFinbourneApi(TestCase):
                         currency=transaction['transaction_currency']),
                     source='Client',
                     transaction_currency=transaction['transaction_currency'],
-                    properties={
-                        strategy_property_key: models.PropertyValue(
-                            label_value=transaction['strategy']),
-                        'Trade/default/TradeToPortfolioRate': models.PropertyValue(
-                            metric_value=models.MetricValue(1.0))
-                    }
+                    properties={strategy_property_key: models.PropertyValue(label_value=transaction['strategy']),
+                        "Trade/default/TradeToPortfolioRate": models.PropertyValue(metric_value=models.MetricValue(1.0))}
                 ))
         end = time.time()
         print('batch tran create: ' + str(end - start))
+
+        # properties = {
+        #     strategy_property_key: models.PropertyValue(
+        #         label_value=transaction['strategy']),
+        #     'Trade/default/TradeToPortfolioRate': models.PropertyValue(
+        #         metric_value=models.MetricValue(1.0))
+        # }
 
         # Call LUSID to upsert our transactions
         transaction_response = cls.client.upsert_transactions(
@@ -316,7 +478,7 @@ class TestAccessFinbourneApi(TestCase):
         # We now need to add in closing prices for our instruments over the last two years
         # Import our instrument prices from a CSV file
 
-        instrument_close_prices = pd.read_csv('data/company_closing_prices_no_divis.csv')
+        instrument_close_prices = pd.read_csv(close_file)
 
         end = time.time()
         print('close prices load: ' + str(end - start))
@@ -328,8 +490,6 @@ class TestAccessFinbourneApi(TestCase):
         # Note we need a separate store for each closing date
         # Set our analytics effective dates
 
-        # analytics_effective_date = datetime.now(pytz.UTC) - timedelta(days=3)
-        # today = datetime.now(pytz.UTC)
         analytics_store_dates = []      # we will need to populate this from the closing prices
 
         # Create prices via instrument, analytic
@@ -363,12 +523,23 @@ class TestAccessFinbourneApi(TestCase):
             # Create analytics store request - one required for each date there are prices
             point1 = time.time()
             format_date =parser.parse(date).replace(tzinfo=pytz.utc)
+            year = format_date.year
+            month = format_date.month
+            day = format_date.day
+
             analytics_store_request = models.CreateAnalyticStoreRequest(scope=analyst_scope_code,
                                                                         date_property=format_date)
             point2 = time.time()
             time2 += (point2 - point1)
-            # Call LUSID to create our analytics store
-            cls.client.create_analytic_store(request=analytics_store_request)
+
+            try:
+                store_response = cls.client.get_analytic_store(scope=analyst_scope_code, year=year, month=month, day=day)
+            except Exception as err_response:
+                if err_response.error.status == 404:
+                    # store does not exist, create.
+                    # Call LUSID to create our analytics store
+                    cls.client.create_analytic_store(request=analytics_store_request)
+
             point3 = time.time()
             time3 += (point3 - point2)
             days_closes = []
@@ -378,9 +549,9 @@ class TestAccessFinbourneApi(TestCase):
             time4 += (point4 - point3)
             # Call LUSID to set up our newly created analytics store with our prices
             cls.client.set_analytics(scope=analyst_scope_code,
-                                     year=format_date.year,
-                                     month=format_date.month,
-                                     day=format_date.day,
+                                     year=year,
+                                     month=month,
+                                     day=day,
                                      data=days_closes)
             point5 = time.time()
             time5 += (point5 - point4)
@@ -392,46 +563,121 @@ class TestAccessFinbourneApi(TestCase):
         print('set analytics: ' + str(time5))
         print('Analytics Set')
 
-        # we can now value the portfolio assuming different access levels and look at how the
-        # stock have been traded.
-        # set today to be the last entered close
-        today = datetime(2018, 12, 31, tzinfo=pytz.utc)
-        # Create our aggregation request
-        aggregation_request = models.AggregationRequest(
-            recipe_id=models.ResourceId(
-            scope=analyst_scope_code,
-            code='default'),
-            effective_at=today,
-            metrics=[
-                models.AggregateSpec(
-                    key='Holding/default/SubHoldingKey',
-                    op='value'),
-                models.AggregateSpec(
-                    key='Holding/default/Units',
-                    op='sum'),
-                models.AggregateSpec(
-                    key='Holding/default/Cost',
-                    op='sum'),
-                models.AggregateSpec(
-                    key='Holding/default/PV',
-                    op='sum'),
-                models.AggregateSpec(
-                    key='Holding/default/Price',
-                    op='sum')
-            ],
-            group_by=[
-                'Holding/default/SubHoldingKey'
-            ])
+        #now with multiple valuations at multiple dates, and multiple users, we need to send results to file
+        print_file = open("output.txt", "w")
 
-        # Call LUSID to aggregate across all of our portfolios
-        aggregated_portfolio = cls.client.get_aggregation_by_portfolio(scope=analyst_scope_code,
-                                                                   code=transaction_portfolio_code,
-                                                                   request=aggregation_request)
-        end = time.time()
-        print('get aggregation: ' + str(end - start))
-        # prettyprint.aggregation_response_paper(aggregated_portfolio)
-        total_cost = 0
-        total_pv = 0
+        #loop through the usernames and see how the aggregation varies by forSpec date range in the restrict policy
+        for username, password in user_list.items():
+
+            # Prepare our authentication request
+            credentials = cls.create_shrine_lusid_clients(username, password, client_id, client_secret, token_url)
+
+            # we can now value the portfolio assuming different access levels and look at how the
+            # stocks have been traded.
+            # value the portfolio daily
+            for item in analytics_store_dates[::-1]:
+                valuation_date = parser.parse(item).replace(tzinfo=pytz.utc)
+                print('Valuation date is: ' + str(valuation_date))
+
+                # Create our aggregation request
+                aggregation_request = models.AggregationRequest(
+                    recipe_id=models.ResourceId(
+                        scope=analyst_scope_code,
+                        code='default'),
+                    effective_at=valuation_date,
+                    metrics=[
+                        models.AggregateSpec(
+                            key='Holding/default/SubHoldingKey',
+                            op='value'),
+                        models.AggregateSpec(
+                            key='Holding/default/Units',
+                            op='sum'),
+                        models.AggregateSpec(
+                            key='Holding/default/Cost',
+                            op='sum'),
+                        models.AggregateSpec(
+                            key='Holding/default/PV',
+                            op='sum'),
+                        models.AggregateSpec(
+                            key='Holding/default/Price',
+                            op='sum')
+                    ],
+                    group_by=[
+                        'Holding/default/SubHoldingKey'
+                    ])
+                try:
+                    # Call LUSID to aggregate across all of our portfolios for 'valuation_date'
+                    aggregated_portfolio = cls.client.get_aggregation_by_portfolio(scope=analyst_scope_code,
+                                                                                   code=transaction_portfolio_code,
+                                                                                   request=aggregation_request)
+                except Exception as inst:
+                    if inst.error.status == 403:
+                        # entitlements rejects this, step to next date
+                        continue
+                    else:
+                        raise inst
+
+
+                query_params = models.TransactionQueryParameters(
+                    start_date=cls.effective_date,
+                    end_date=valuation_date,
+                    query_mode='TradeDate',
+                    show_cancelled_transactions=None)
+
+                transactions_response = cls.client.build_transactions(
+                    scope=analyst_scope_code,
+                    code=transaction_portfolio_code,
+                    as_at=None,
+                    sort_by=None,
+                    start=None,
+                    limit=None,
+                    instrument_property_keys=['Instrument/default/Name'],
+                    filter=None,
+                    parameters=query_params
+                )
+
+                end = time.time()
+                print('get aggregation: ' + str(end - start))
+                # prettyprint.aggregation_response_paper(aggregated_portfolio)
+
+
+                end = time.time()
+                print('build output trans: ' + str(end - start))
+
+                # Transactions response is a list of the trades we created
+                # In each output transaction, there is a realised gain loss attribute.
+                # These can be combined with position p&l to create an overall p&l.
+                # Group the transactions by LUID
+                output_store = {}
+
+                for output_transaction in transactions_response.values:
+                    if len(output_transaction.realised_gain_loss) > 0:      # not a ccy
+                        if output_transaction.instrument_uid not in output_store:
+                            output_store[output_transaction.instrument_uid] = {}
+                        realised_gain_loss = 0
+                        for item in output_transaction.realised_gain_loss:
+                            realised_gain_loss += item.realised_total.amount
+                        output_store[output_transaction.instrument_uid][output_transaction.transaction_date] = realised_gain_loss
+
+                # output_store now holds all the transactions by LUID.
+                # we can sum to the pv as shown earlier.
+
+                for instrument_name, instrument_identifiers in cls.instrument_universe.items():
+                    # get the trades from output_store, the end pv from aggregated_portfolio.data
+                    position_pl = 0
+                    trade_pl = 0
+                    if instrument_identifiers['LUID'] in output_store:
+                        trade_pl = sum(output_store[instrument_identifiers['LUID']].values())
+                        print('trade p&l: ' + str(trade_pl))
+                    for item in aggregated_portfolio.data:
+                        if item['Holding/default/SubHoldingKey'] == 'LusidInstrumentId=' + instrument_identifiers['LUID'] + '/USD':
+                            position_pl = item['Sum(Holding/default/PV)'] - item['Sum(Holding/default/Cost)']
+                    if position_pl != 0:
+                        print('pos p&l: ' + str(position_pl))
+
+                    print('Username: ' + username + ', p&l for ' + instrument_name + ': ' + str(trade_pl + position_pl))
+                    print('Username: ' + username + ', date: ' + str(valuation_date) + ' p&l for ' + instrument_name + ': ' + str(trade_pl + position_pl), file=print_file)
+        print_file.close()
 
         # for result in aggregated_portfolio.data:
         #     if 'Currency' in result['Holding/default/SubHoldingKey']:
@@ -457,64 +703,11 @@ class TestAccessFinbourneApi(TestCase):
         # dec5th17 = datetime(2017, 12, 5, tzinfo=pytz.utc)
         # dec6th17 = datetime(2017, 12, 6, tzinfo=pytz.utc)
 
-        # # test whats in LUSID by holdings:
-        # dec4th17holdings = cls.client.get_holdings(analyst_scope_code, transaction_portfolio_code, False, dec4th17)
-        # dec5th17holdings = cls.client.get_holdings(analyst_scope_code, transaction_portfolio_code, False, dec5th17)
-        # dec6th17holdings = cls.client.get_holdings(analyst_scope_code, transaction_portfolio_code, False, dec6th17)
-
-        # get realised p&l during the life of the portfolio
-
-        query_params = models.TransactionQueryParameters(
-            start_date=cls.effective_date,
-            end_date=today,
-            query_mode='TradeDate',
-            show_cancelled_transactions=None)
-
-        transactions_response = cls.client.build_transactions(
-            scope=analyst_scope_code,
-            code=transaction_portfolio_code,
-            as_at=None,
-            sort_by=None,
-            start=None,
-            limit=None,
-            instrument_property_keys=['Instrument/default/Name'],
-            filter=None,
-            parameters=query_params
-        )
-        end = time.time()
-        print('build output trans: ' + str(end - start))
-
-        # Transactions response is a list of the trades we created
-        # In each output transaction, there is a realised gain loss attribute.
-        # These can be combined with position p&l to create an overall p&l.
-        output_store = {}
-
-        for output_transaction in transactions_response.values:
-            if len(output_transaction.realised_gain_loss) > 0:      # not a ccy
-                if output_transaction.instrument_uid not in output_store:
-                    output_store[output_transaction.instrument_uid] = {}
-                realised_gain_loss = 0
-                for item in output_transaction.realised_gain_loss:
-                    realised_gain_loss += item.realised_total.amount
-                output_store[output_transaction.instrument_uid][output_transaction.transaction_date] = realised_gain_loss
-
-        # output_store now holds all the transactions by LUID.
-        # we can sum to the pv as shown earlier.
-
-        for instrument_name, instrument_identifiers in cls.instrument_universe.items():
-            # get the trades from output_store, the end pv from aggregated_portfolio.data
-            position_pl = 0
-            trade_pl = 0
-            if instrument_identifiers['LUID'] in output_store:
-                trade_pl = sum(output_store[instrument_identifiers['LUID']].values())
-                print('trade p&l: ' + str(trade_pl))
-            for item in aggregated_portfolio.data:
-                if item['Holding/default/SubHoldingKey'] == 'LusidInstrumentId=' + instrument_identifiers['LUID'] + '/USD':
-                    position_pl = item['Sum(Holding/default/PV)'] - item['Sum(Holding/default/Cost)']
-            if position_pl != 0:
-                print('pos p&l: ' + str(position_pl))
-
-            print('Total trade and position p&l for ' + instrument_name + ': ' + str(trade_pl + position_pl))
+        # tidy-up....need to delete policies and roles for re-running
+        #response = cls.shrine_client.api_roles_by_code_delete(role_code_allow, custom_headers=custom_header)
+        #response = cls.shrine_client.api_roles_by_code_delete(role_code_restrict, custom_headers=custom_header)
+        #response = cls.shrine_client.api_policies_by_code_delete(policy_code_restrict, custom_headers=custom_header)
+        #response = cls.shrine_client.api_policies_by_code_delete(policy_code_allow, custom_headers=custom_header)
 
     @classmethod
     def tearDownClass(cls):
@@ -522,9 +715,7 @@ class TestAccessFinbourneApi(TestCase):
             response = cls.client.delete_instrument(InstrumentLoader.FIGI_SCHEME, item['Figi'])
     @classmethod
     def load_instruments_from_file(cls):
-        inst_list = pd.read_csv('data/DOW Figis.csv')
-        # Look at the first 10 instruments
-        # inst_list.head(n=10)
+        inst_list = pd.read_csv(cls.INSTRUMENT_FILE)
         return inst_list
     @classmethod
     def load_transactions_from_file(cls, csv_file):
@@ -552,7 +743,7 @@ class TestAccessFinbourneApi(TestCase):
         """
         This function is used to import data form our csv files
         """
-        data = pd.read_csv('./data/{}'.format(csv_file))
+        data = pd.read_csv(csv_file)
         return data
 
     @classmethod
@@ -565,12 +756,36 @@ class TestAccessFinbourneApi(TestCase):
         return data
 
     @classmethod
+    def create_shrine_lusid_clients(cls, username, password, client_id, client_secret, token_url):
+        # Prepare our authentication request
+        token_request_body = ("grant_type=password&username={0}".format(username) +
+                              "&password={0}&scope=openid client groups".format(password) +
+                              "&client_id={0}&client_secret={1}".format(client_id, client_secret))
+        headers = {"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
+
+        # Make our authentication request
+        okta_response = requests.post(token_url, data=token_request_body, headers=headers)
+
+        # Ensure that we have a 200 response code
+        assert okta_response.status_code == 200
+
+        # Retrieve our api token from the authentication response
+        cls.api_token = {"access_token": okta_response.json()["access_token"]}
+
+        # Initialise our API client using our token so that we can include it in all future requests
+        credentials = BasicTokenAuthentication(cls.api_token)
+        cls.client = lusid.LUSIDAPI(credentials, cls.api_url)
+        # Do the same for Shrine - note the call is slightly different for now, with the token being passed in later
+        shrine_url = 'https://shrine-am-ci.lusid.com'
+        cls.shrine_client = shrine.FINBOURNEShrineAPI(shrine_url)
+        return credentials
+    @classmethod
     def upsert_intruments(cls, inst_list):
         # Initialise our batch upsert request
         batch_upsert_request = {}
         # Iterate over our instrument universe
         for row in inst_list.iterrows():
-            # Collect our instrument note that row[0] gives you the index
+            # Collect our instrument, note that row[0] gives you the index
             instrument = row[1]
             instrument_ticker = models.InstrumentProperty(cls.TICKER_PROPERTY_KEY,  models.PropertyValue(instrument['instrument_name']))
 
