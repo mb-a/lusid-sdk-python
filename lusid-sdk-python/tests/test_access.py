@@ -68,6 +68,7 @@ class TestAccessFinbourneApi(TestCase):
         user_list[username_admin] = password_admin
         user_list[username_restricted] = password_restricted
 
+
         cls.api_url = os.getenv("FBN_LUSID_API_URL", config["api"]["apiUrl"])
 
         # Create shrine and lusid clients, return credentials, using super who will be in charge
@@ -93,7 +94,7 @@ class TestAccessFinbourneApi(TestCase):
         today_date = datetime(2018, 12, 31, tzinfo=pytz.utc)
         cls.INSTRUMENT_FILE = 'data/DOW Figis.csv'
 
-        transaction_portfolio_code = 'DJII_30a'  # djii_30 has an error deleting and recreating
+        transaction_portfolio_code = 'DJII_30c'  # djii_30 has an error deleting and recreating
 
         ##################################
         # Create policies with access, timing etc (really show off shrine capabilities)
@@ -220,11 +221,7 @@ class TestAccessFinbourneApi(TestCase):
         custom_header = {'Authorization': 'Bearer ' + tokenid}
 
         #Delete everything
-        # response = cls.shrine_client.api_roles_by_code_delete(role_code_allow, custom_headers=custom_header)
-        # response = cls.shrine_client.api_roles_by_code_delete(role_code_restrict, custom_headers=custom_header)
-        # response = cls.shrine_client.api_policies_by_code_delete(policy_code_allow, custom_headers=custom_header)
-        # response = cls.shrine_client.api_policies_by_code_delete(policy_code_restrict, custom_headers=custom_header)
-        # response = cls.shrine_client.api_policies_by_code_delete(policy_code_restrict1, custom_headers=custom_header)
+        response = cls.shrine_client.api_policies_by_code_delete(policy_code_restrict1, custom_headers=custom_header)
 
         # check before submitting that you are not duplicating policies, this is not permitted
         try:
@@ -307,7 +304,6 @@ class TestAccessFinbourneApi(TestCase):
         # for_property = [model_for_spec]  # temporal restriction
         # Start the clock on timing
         start = time.time()
-
 
         end = time.time()
         print('Inst load: ' + str(end-start))
@@ -566,6 +562,9 @@ class TestAccessFinbourneApi(TestCase):
         #now with multiple valuations at multiple dates, and multiple users, we need to send results to file
         print_file = open("output.txt", "w")
 
+        # token timeout prevention
+        token_time = datetime.now()
+
         #loop through the usernames and see how the aggregation varies by forSpec date range in the restrict policy
         for username, password in user_list.items():
 
@@ -575,8 +574,20 @@ class TestAccessFinbourneApi(TestCase):
             # we can now value the portfolio assuming different access levels and look at how the
             # stocks have been traded.
             # value the portfolio daily
-            for item in analytics_store_dates[::-1]:
-                valuation_date = parser.parse(item).replace(tzinfo=pytz.utc)
+            valuation_date = datetime(2017, 1, 1, tzinfo=pytz.utc)
+            while valuation_date < datetime(2017, 12, 31, tzinfo=pytz.utc):
+                valuation_date += timedelta(days=1)
+                if (datetime.now() - token_time).seconds > 1500:
+                    credentials = cls.create_shrine_lusid_clients(username, password, client_id, client_secret,
+                                                                  token_url)
+                    token_time = datetime.now()
+                # We wish to see valuations for each business date that has a close
+                # and we'd also like to force valuations for 1st of the month to demonstrate the test case
+                if valuation_date.day != 1:
+                    # check valuation date has a close
+                    if str(valuation_date.date()) not in analytics_store_dates:
+                        continue
+
                 print('Valuation date is: ' + str(valuation_date))
 
                 # Create our aggregation request
@@ -652,7 +663,7 @@ class TestAccessFinbourneApi(TestCase):
 
                 for output_transaction in transactions_response.values:
                     if len(output_transaction.realised_gain_loss) > 0:      # not a ccy
-                        if output_transaction.instrument_uid not in output_store:
+                        if output_transaction.instrument_uid not in list(output_store.keys()):
                             output_store[output_transaction.instrument_uid] = {}
                         realised_gain_loss = 0
                         for item in output_transaction.realised_gain_loss:
@@ -792,7 +803,7 @@ class TestAccessFinbourneApi(TestCase):
             # Add the instrument to our batch request using the FIGI as the main unique identifier
             batch_upsert_request[instrument['instrument_name']] = models.InstrumentDefinition(
                 name=instrument['instrument_name'],
-                identifiers={cls.FIGI_SCHEME: instrument['figi']},
+                identifiers={cls.FIGI_SCHEME: models.InstrumentIdValue(instrument['figi'])},
                 properties=[instrument_ticker])
 
 
