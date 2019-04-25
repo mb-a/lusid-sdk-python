@@ -2,6 +2,7 @@ import os
 import requests
 import lusid
 import json
+from msrest.authentication import BasicTokenAuthentication
 
 try:
     # Python 3.x
@@ -66,6 +67,7 @@ class ApiClientBuilder:
         config = lusid.Configuration()
         config.access_token = api_token
         config.host = api_url
+        config.credentials = BasicTokenAuthentication(api_token)
 
         return lusid.ApiClient(config)
 

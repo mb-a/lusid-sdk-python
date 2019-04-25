@@ -10,11 +10,13 @@ import lusid
 import lusid.models as models
 from unittest import TestCase
 from msrest.authentication import BasicTokenAuthentication
-from TestDataUtilities import TestDataUtilities
+from api_client_builder import ApiClientBuilder
+
 from InstrumentLoader import InstrumentLoader
 import pandas as pd
 import shrine
-import shrine.models as shrine_models
+from shrine import models as shrine_models
+
 import time
 
 
@@ -26,8 +28,11 @@ except ImportError:
     from urllib import pathname2url
 
 
-class TestAccessFinbourneApi(TestCase):
-    client = None
+class TestAccessShrine(TestCase):
+    client_admin = None
+    client_super = None
+    client_restricted = None
+
     shrine_client = None
     effective_date = datetime(2017, 1, 1, tzinfo=pytz.utc)
 
@@ -48,32 +53,39 @@ class TestAccessFinbourneApi(TestCase):
         user_list = {}
         # Load our multiple configuration details from the local secrets file
         dir_path = os.path.dirname(os.path.realpath(__file__))
-        with open(os.path.join(dir_path, "secrets.json"), "r") as secrets:
-            config = json.load(secrets)
-
-        token_url = os.getenv("FBN_TOKEN_URL", config["api"]["tokenUrl"])
+        # with open(os.path.join(dir_path, "secrets.json"), "r") as secrets:
+        #     config = json.load(secrets)
+        #
+        # token_url = os.getenv("FBN_TOKEN_URL", config["api"]["tokenUrl"])
         # 3 users - restricted, admin and super
 
-        username_super = os.getenv("FBN_USERNAME", config["api"]["username_super"])
-        username_admin = os.getenv("FBN_USERNAME", config["api"]["username_admin"])
-        username_restricted = os.getenv("FBN_USERNAME", config["api"]["username_restricted"])
+        # username_super = os.getenv("FBN_USERNAME", config["api"]["username_super"])
+        # username_admin = os.getenv("FBN_USERNAME", config["api"]["username_admin"])
+        # username_restricted = os.getenv("FBN_USERNAME", config["api"]["username_restricted"])
+        #
+        # password_super = pathname2url(os.getenv("FBN_PASSWORD", config["api"]["password_super"]))
+        # password_admin = pathname2url(os.getenv("FBN_PASSWORD", config["api"]["password_admin"]))
+        # password_restricted = pathname2url(os.getenv("FBN_PASSWORD", config["api"]["password_restricted"]))
+        #
+        # client_id = pathname2url(os.getenv("FBN_CLIENT_ID", config["api"]["clientId"]))
+        # client_secret = pathname2url(os.getenv("FBN_CLIENT_SECRET", config["api"]["clientSecret"]))
+        #
+        # user_list[username_admin] = password_admin
+        # user_list[username_restricted] = password_restricted
 
-        password_super = pathname2url(os.getenv("FBN_PASSWORD", config["api"]["password_super"]))
-        password_admin = pathname2url(os.getenv("FBN_PASSWORD", config["api"]["password_admin"]))
-        password_restricted = pathname2url(os.getenv("FBN_PASSWORD", config["api"]["password_restricted"]))
+        # create multiple configured API clients
+        cls.client_super = ApiClientBuilder().build("secrets-super.json")
+        cls.client_admin = ApiClientBuilder().build("secrets-admin.json")
+        cls.client_restricted = ApiClientBuilder().build("secrets-restricted.json")
+        # Do the same for Shrine - note the call is slightly different for now, with the token being passed in later
+        shrine_url = 'https://shrine-am-ci.lusid.com'
+        cls.shrine_client = shrine.FINBOURNEShrineAPI(shrine_url)
 
-        client_id = pathname2url(os.getenv("FBN_CLIENT_ID", config["api"]["clientId"]))
-        client_secret = pathname2url(os.getenv("FBN_CLIENT_SECRET", config["api"]["clientSecret"]))
-
-        user_list[username_admin] = password_admin
-        user_list[username_restricted] = password_restricted
-
-
-        cls.api_url = os.getenv("FBN_LUSID_API_URL", config["api"]["apiUrl"])
+        #cls.api_url = os.getenv("FBN_LUSID_API_URL", config["api"]["apiUrl"])
 
         # Create shrine and lusid clients, return credentials, using super who will be in charge
         # of creating policies and roles.
-        credentials = cls.create_shrine_lusid_clients(username_super, password_super, client_id, client_secret, token_url)
+        #credentials = cls.create_shrine_lusid_clients(username_super, password_super, client_id, client_secret, token_url)
 
         ##################################
         # create scopes here
@@ -217,11 +229,11 @@ class TestAccessFinbourneApi(TestCase):
             when=model_when_spec,
             for_property=[model_for_spec]       #only attach the forspec to the portfolio access policy, otherwise the other actions will be tested against this criteria
         )
-        tokenid = credentials.token['access_token']
+        tokenid = cls.client_super.configuration.credentials.token
         custom_header = {'Authorization': 'Bearer ' + tokenid}
 
-        #Delete everything
-        response = cls.shrine_client.api_policies_by_code_delete(policy_code_restrict1, custom_headers=custom_header)
+
+        #response = cls.shrine_client.api_policies_by_code_delete(policy_code_restrict1, custom_headers=custom_header)
 
         # check before submitting that you are not duplicating policies, this is not permitted
         try:
@@ -785,6 +797,7 @@ class TestAccessFinbourneApi(TestCase):
 
         # Initialise our API client using our token so that we can include it in all future requests
         credentials = BasicTokenAuthentication(cls.api_token)
+
         cls.client = lusid.LUSIDAPI(credentials, cls.api_url)
         # Do the same for Shrine - note the call is slightly different for now, with the token being passed in later
         shrine_url = 'https://shrine-am-ci.lusid.com'
