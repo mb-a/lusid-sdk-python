@@ -79,7 +79,8 @@ class TestAccessShrine(TestCase):
         cls.client_restricted = ApiClientBuilder().build("secrets-restricted.json")
         # Do the same for Shrine - note the call is slightly different for now, with the token being passed in later
         shrine_url = 'https://shrine-am-ci.lusid.com'
-        cls.shrine_client = shrine.FINBOURNEShrineAPI(shrine_url)
+        api_token = {"access_token": cls.client_super.configuration.access_token}
+        cls.shrine_client = shrine.FINBOURNEShrineAPI(BasicTokenAuthentication(api_token), shrine_url)
 
         #cls.api_url = os.getenv("FBN_LUSID_API_URL", config["api"]["apiUrl"])
 
@@ -229,31 +230,31 @@ class TestAccessShrine(TestCase):
             when=model_when_spec,
             for_property=[model_for_spec]       #only attach the forspec to the portfolio access policy, otherwise the other actions will be tested against this criteria
         )
-        tokenid = cls.client_super.configuration.credentials.token
-        custom_header = {'Authorization': 'Bearer ' + tokenid}
+        # tokenid = cls.client_super.configuration.credentials.token
+        # custom_header = {'Authorization': 'Bearer ' + tokenid}
 
 
         #response = cls.shrine_client.api_policies_by_code_delete(policy_code_restrict1, custom_headers=custom_header)
 
         # check before submitting that you are not duplicating policies, this is not permitted
         try:
-            response = cls.shrine_client.api_policies_by_code_get(policy_code_allow, custom_headers=custom_header)
+            response = cls.shrine_client.api_policies_by_code_get(policy_code_allow)
         except Exception as inst:
             if inst.error.response.status_code == 404:
                 # Policy does not exist, create.
-                response = cls.shrine_client.api_policies_post(policy_allow, custom_headers=custom_header)
+                response = cls.shrine_client.api_policies_post(policy_allow)
         try:
-            response = cls.shrine_client.api_policies_by_code_get(policy_code_restrict, custom_headers=custom_header)
+            response = cls.shrine_client.api_policies_by_code_get(policy_code_restrict)
         except Exception as inst:
             if inst.error.response.status_code == 404:
                 # Policy does not exist, create.
-                response = cls.shrine_client.api_policies_post(policy_restrict, custom_headers=custom_header)
+                response = cls.shrine_client.api_policies_post(policy_restrict)
         try:
-            response = cls.shrine_client.api_policies_by_code_get(policy_code_restrict1, custom_headers=custom_header)
+            response = cls.shrine_client.api_policies_by_code_get(policy_code_restrict1)
         except Exception as inst:
             if inst.error.response.status_code == 404:
                 # Policy does not exist, create.
-                response = cls.shrine_client.api_policies_post(policy_restrict1, custom_headers=custom_header)
+                response = cls.shrine_client.api_policies_post(policy_restrict1)
         # create a role for someone not allowed to view transactions - clerical level access
         # and someone allowed full access - manager level
 
@@ -290,18 +291,18 @@ class TestAccessShrine(TestCase):
         # check before submitting that you are not duplicating roles, this is not permitted
 
         try:
-            response = cls.shrine_client.api_roles_by_code_get(role_code_restrict, custom_headers=custom_header)
+            response = cls.shrine_client.api_roles_by_code_get(role_code_restrict)
         except Exception as inst:
             if inst.error.response.status_code == 404:
                 # Role does not exist, create
-                response = cls.shrine_client.api_roles_post(role_cleric, custom_headers=custom_header)
+                response = cls.shrine_client.api_roles_post(role_cleric)
 
         try:
-            response = cls.shrine_client.api_roles_by_code_get(role_code_allow, custom_headers=custom_header)
+            response = cls.shrine_client.api_roles_by_code_get(role_code_allow)
         except Exception as inst:
             if inst.error.response.status_code == 404:
                 # Role does not exist, create
-                response = cls.shrine_client.api_roles_post(role_manager, custom_headers=custom_header)
+                response = cls.shrine_client.api_roles_post(role_manager)
 
 
         # credentials = cls.create_shrine_lusid_clients(username_default, password_default, client_id_default,client_secret_default, token_url)
@@ -727,10 +728,10 @@ class TestAccessShrine(TestCase):
         # dec6th17 = datetime(2017, 12, 6, tzinfo=pytz.utc)
 
         # tidy-up....need to delete policies and roles for re-running
-        #response = cls.shrine_client.api_roles_by_code_delete(role_code_allow, custom_headers=custom_header)
-        #response = cls.shrine_client.api_roles_by_code_delete(role_code_restrict, custom_headers=custom_header)
-        #response = cls.shrine_client.api_policies_by_code_delete(policy_code_restrict, custom_headers=custom_header)
-        #response = cls.shrine_client.api_policies_by_code_delete(policy_code_allow, custom_headers=custom_header)
+        #response = cls.shrine_client.api_roles_by_code_delete(role_code_allow)
+        #response = cls.shrine_client.api_roles_by_code_delete(role_code_restrict)
+        #response = cls.shrine_client.api_policies_by_code_delete(policy_code_restrict)
+        #response = cls.shrine_client.api_policies_by_code_delete(policy_code_allow)
 
     @classmethod
     def tearDownClass(cls):
