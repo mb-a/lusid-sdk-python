@@ -77,6 +77,16 @@ class TestAccessShrine(TestCase):
         cls.client_super = ApiClientBuilder().build("secrets-super.json")
         cls.client_admin = ApiClientBuilder().build("secrets-admin.json")
         cls.client_restricted = ApiClientBuilder().build("secrets-restricted.json")
+
+        # set up the APIs
+        cls.instruments_api = lusid.InstrumentsApi(cls.client_super)
+        cls.transaction_portfolios_api = lusid.TransactionPortfoliosApi(cls.client_super)
+        cls.property_definition_api = lusid.PropertyDefinitionsApi(cls.client_super)
+        cls.portfolios_api = lusid.PortfoliosApi(cls.client_super)
+        cls.analytic_stores_api = lusid.AnalyticsStoresApi(cls.client_super)
+        cls.aggregation_api = lusid.AggregationApi(cls.client_super)
+
+
         # Do the same for Shrine - note the call is slightly different for now, with the token being passed in later
         shrine_url = 'https://shrine-am-ci.lusid.com'
         api_token = {"access_token": cls.client_super.configuration.access_token}
@@ -338,7 +348,7 @@ class TestAccessShrine(TestCase):
 
         # Call LUSID to create our portfolio
         try:
-            response = cls.client.get_portfolio(scope=analyst_scope_code, code=transaction_portfolio_code)
+            response = cls.portfolios_api.get_portfolio(scope=analyst_scope_code, code=transaction_portfolio_code)
         except Exception as err_response:
             if err_response.response.status_code == 404:
                 # portfolio does not exist, create.
@@ -822,7 +832,7 @@ class TestAccessShrine(TestCase):
 
 
         # Call LUSID to upsert our batch
-        instrument_response = cls.client.upsert_instruments(requests=batch_upsert_request)
+        instrument_response = cls.instruments_api.upsert_instruments(request_body=batch_upsert_request)
 
         # Pretty print the response from LUSID
         # prettyprint.instrument_response(instrument_response, identifier='Figi')

@@ -18,18 +18,25 @@ class FINBOURNEShrineAPIConfiguration(Configuration):
     Note that all parameters used to create this instance are saved as instance
     attributes.
 
+    :param credentials: Subscription credentials which uniquely identify
+     client subscription.
+    :type credentials: None
     :param str base_url: Service URL
     """
 
     def __init__(
-            self, base_url=None):
+            self, credentials, base_url=None):
 
+        if credentials is None:
+            raise ValueError("Parameter 'credentials' must not be None.")
         if not base_url:
             base_url = 'http://localhost'
 
         super(FINBOURNEShrineAPIConfiguration, self).__init__(base_url)
 
         self.add_user_agent('finbourneshrineapi/{}'.format(VERSION))
+
+        self.credentials = credentials
 
 
 class FINBOURNEShrineAPI(object):
@@ -38,14 +45,17 @@ class FINBOURNEShrineAPI(object):
     :ivar config: Configuration for client.
     :vartype config: FINBOURNEShrineAPIConfiguration
 
+    :param credentials: Subscription credentials which uniquely identify
+     client subscription.
+    :type credentials: None
     :param str base_url: Service URL
     """
 
     def __init__(
-            self, base_url=None):
+            self, credentials, base_url=None):
 
-        self.config = FINBOURNEShrineAPIConfiguration(base_url)
-        self._client = ServiceClient(None, self.config)
+        self.config = FINBOURNEShrineAPIConfiguration(credentials, base_url)
+        self._client = ServiceClient(self.config.credentials, self.config)
 
         client_models = {k: v for k, v in models.__dict__.items() if isinstance(v, type)}
         self.api_version = 'v0'
@@ -283,9 +293,8 @@ class FINBOURNEShrineAPI(object):
          deserialized response
         :param operation_config: :ref:`Operation configuration
          overrides<msrest:optionsforoperations>`.
-        :return: PolicyResponse or ClientRawResponse if raw=true
-        :rtype: ~shrine.models.PolicyResponse or
-         ~msrest.pipeline.ClientRawResponse
+        :return: object or ClientRawResponse if raw=true
+        :rtype: object or ~msrest.pipeline.ClientRawResponse
         :raises:
          :class:`HttpOperationError<msrest.exceptions.HttpOperationError>`
         """
@@ -309,13 +318,13 @@ class FINBOURNEShrineAPI(object):
         response = self._client.send(
             request, header_parameters, body_content, stream=False, **operation_config)
 
-        if response.status_code not in [200, 201]:
+        if response.status_code not in [201]:
             raise HttpOperationError(self._deserialize, response)
 
         deserialized = None
 
-        if response.status_code in [200, 201]:
-            deserialized = self._deserialize('PolicyResponse', response)
+        if response.status_code == 201:
+            deserialized = self._deserialize('object', response)
 
         if raw:
             client_raw_response = ClientRawResponse(deserialized, response)
@@ -591,9 +600,8 @@ class FINBOURNEShrineAPI(object):
          deserialized response
         :param operation_config: :ref:`Operation configuration
          overrides<msrest:optionsforoperations>`.
-        :return: PolicyCollectionResponse or ClientRawResponse if raw=true
-        :rtype: ~shrine.models.PolicyCollectionResponse or
-         ~msrest.pipeline.ClientRawResponse
+        :return: object or ClientRawResponse if raw=true
+        :rtype: object or ~msrest.pipeline.ClientRawResponse
         :raises:
          :class:`HttpOperationError<msrest.exceptions.HttpOperationError>`
         """
@@ -617,13 +625,13 @@ class FINBOURNEShrineAPI(object):
         response = self._client.send(
             request, header_parameters, body_content, stream=False, **operation_config)
 
-        if response.status_code not in [200]:
+        if response.status_code not in [201]:
             raise HttpOperationError(self._deserialize, response)
 
         deserialized = None
 
-        if response.status_code == 200:
-            deserialized = self._deserialize('PolicyCollectionResponse', response)
+        if response.status_code == 201:
+            deserialized = self._deserialize('object', response)
 
         if raw:
             client_raw_response = ClientRawResponse(deserialized, response)
@@ -899,9 +907,8 @@ class FINBOURNEShrineAPI(object):
          deserialized response
         :param operation_config: :ref:`Operation configuration
          overrides<msrest:optionsforoperations>`.
-        :return: RoleResponse or ClientRawResponse if raw=true
-        :rtype: ~shrine.models.RoleResponse or
-         ~msrest.pipeline.ClientRawResponse
+        :return: object or ClientRawResponse if raw=true
+        :rtype: object or ~msrest.pipeline.ClientRawResponse
         :raises:
          :class:`HttpOperationError<msrest.exceptions.HttpOperationError>`
         """
@@ -925,13 +932,13 @@ class FINBOURNEShrineAPI(object):
         response = self._client.send(
             request, header_parameters, body_content, stream=False, **operation_config)
 
-        if response.status_code not in [200, 201]:
+        if response.status_code not in [201]:
             raise HttpOperationError(self._deserialize, response)
 
         deserialized = None
 
-        if response.status_code in [200, 201]:
-            deserialized = self._deserialize('RoleResponse', response)
+        if response.status_code == 201:
+            deserialized = self._deserialize('object', response)
 
         if raw:
             client_raw_response = ClientRawResponse(deserialized, response)
