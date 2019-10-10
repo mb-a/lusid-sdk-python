@@ -1,6 +1,9 @@
 import os
 import json
-from urllib.request import pathname2url
+try:
+    from urllib.request import pathname2url
+except ImportError:
+    from urllib import pathname2url
 from .api_configuration import ApiConfiguration
 
 
