@@ -3,7 +3,10 @@ import base64
 
 from datetime import datetime
 from datetime import timedelta
-from collections import UserString
+try:
+    from collections import UserString
+except ImportError:
+    from UserString import UserString
 
 
 class RefreshingToken(UserString):
@@ -31,14 +34,14 @@ class RefreshingToken(UserString):
             # check if the token has expired and refresh if needed
             if token_data["expires"] <= datetime.utcnow():
 
-                encoded_client = base64.b64encode(bytes(f"{client_id}:{client_secret}", 'utf-8'))
+                encoded_client = base64.b64encode(bytes("{client_id}:{client_secret}".format(**locals()), 'utf-8'))
 
                 headers = {
                     "Content-Type": "application/x-www-form-urlencoded",
-                    "Authorization": f"Basic {encoded_client.decode('utf-8')}"
+                    "Authorization": "Basic {}".format(encoded_client.decode('utf-8'))
                 }
 
-                request_body = f"grant_type=refresh_token&scope=openid client groups offline_access&refresh_token={refresh_token}"
+                request_body = "grant_type=refresh_token&scope=openid client groups offline_access&refresh_token={refresh_token}".format(**locals())
                 okta_response = requests.post(token_url, data=request_body, headers=headers)
 
                 if okta_response.status_code != 200:
