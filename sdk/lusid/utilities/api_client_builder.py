@@ -19,9 +19,9 @@ class ApiClientBuilder:
         configuration = ApiConfigurationLoader().load(api_secrets_filename)
 
         # Prepare our authentication request
-        token_request_body = f"grant_type=password&username={configuration.username}" \
-            f"&password={configuration.password}&scope=openid client groups offline_access" \
-            f"&client_id={configuration.client_id}&client_secret={configuration.client_secret}"
+        token_request_body = ("grant_type=password&username={configuration.username}"
+            "&password={configuration.password}&scope=openid client groups offline_access"
+            "&client_id={configuration.client_id}&client_secret={configuration.client_secret}".format(**locals()))
         headers = {"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
 
         # Make our authentication request
